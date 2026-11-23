@@ -1,9 +1,6 @@
 use std::time::Duration;
 
-use crossterm::event::{
-    self, Event, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
-};
+use crossterm::event::{self, Event};
 use crossterm::{
     event::{
         DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
@@ -86,7 +83,7 @@ impl App {
         let messages_len = self.messages.len() as u16;
         let chat = Paragraph::new(messages)
             .block(chat_block)
-            .scroll((messages_len.saturating_sub(chat_area.height), 0));
+            .scroll((messages_len.saturating_sub(chat_area.height - 2), 0));
         chat.render(chat_area, buf);
 
         let input_block = Block::bordered()
@@ -110,24 +107,35 @@ impl App {
                 Event::Key(key_event) if key_event.is_press() => {
                     // let displayed_input = format!("{key_event:?}");
                     let input: Input = key_event.into();
-                    self.messages.push(format!("{input:?}"));
                     match input {
                         Input { key: Key::Esc, .. } => self.quit(),
-                        // Input {
-                        //     key: Key::Enter,
-                        //     shift: true,
-                        //     ..
-                        // } => {
-                        //     todo!("uhhhhh");
-                        //     self.text_area.insert_newline();
-                        // }
-                        // Input {
-                        //     key: Key::Enter,
-                        //     shift: false,
-                        //     ..
-                        // } => {
-                        //     todo!("message sending");
-                        // }
+                        Input {
+                            key: Key::Enter,
+                            shift: true,
+                            ..
+                        }
+                        | Input {
+                            key: Key::Enter,
+                            ctrl: true,
+                            ..
+                        }
+                        | Input {
+                            key: Key::Char('j'),
+                            ctrl: true,
+                            ..
+                        } => {
+                            self.text_area.insert_newline();
+                        }
+                        Input {
+                            key: Key::Enter, ..
+                        } => {
+                            let lines = self.text_area.lines().join("\n");
+                            let lines = String::from(lines.trim());
+                            if !lines.is_empty() {
+                                self.messages.push(lines);
+                                self.text_area = TextArea::new(Vec::new());
+                            }
+                        }
                         input => {
                             self.text_area.input(input);
                         }
