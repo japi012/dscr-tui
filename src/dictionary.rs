@@ -83,34 +83,61 @@ pub enum ParseSignalError {
 }
 
 impl Dictionary {
-    fn get_name(&self, signal: Signal) -> Option<String> {
+    fn get_name(&self, signal: Signal) -> String {
         match signal {
-            Signal::Word(_) => self.signals.get_by_left(&signal).map(|s| s.clone()),
-            Signal::Number(n) => Some(n.to_string()),
+            Signal::Word(freq) => self
+                .signals
+                .get_by_left(&signal)
+                .map(|s| s.clone())
+                .unwrap_or(format!("|{freq}")),
+            Signal::Number(n) => n.to_string(),
         }
     }
 
     fn get_signal(&self, name: &str) -> Option<Signal> {
-        self.signals.get_by_right(name).copied()
+        if name.starts_with("|-") {
+            let number = (&name[1..]).parse().ok()?;
+            Some(if number < 0 {
+                Signal::Word(number)
+            } else {
+                Signal::Number(number as u64)
+            })
+        } else {
+            self.signals.get_by_right(name).copied()
+        }
     }
 
     fn get_description(&self, signal: Signal) -> Option<&Description> {
         self.description.get(&signal)
     }
 
-    fn get_format_mode_before(&self, signal: Signal) -> Option<FormatMode> {
-        match signal {
-            Signal::Word(_) => self.get_description(signal).map(|desc| desc.format_mode),
-            Signal::Number(_) => Some(FormatMode::NoSpace),
-        }
-    }
-
-    fn get_format_mode_after(&self, signal: Signal) -> Option<FormatMode> {
+    fn get_format_mode_before(&self, signal: Signal) -> FormatMode {
         match signal {
             Signal::Word(_) => self
                 .get_description(signal)
-                .map(|desc| desc.format_mode_after),
-            Signal::Number(_) => Some(FormatMode::NoSpace),
+                .map(|desc| desc.format_mode)
+                .unwrap_or(FormatMode::Space),
+            Signal::Number(_) => FormatMode::NoSpace,
+        }
+    }
+
+    fn get_format_mode_after(&self, signal: Signal) -> FormatMode {
+        match signal {
+            Signal::Word(_) => self
+                .get_description(signal)
+                .map(|desc| desc.format_mode_after)
+                .unwrap_or(FormatMode::Space),
+            Signal::Number(_) => FormatMode::NoSpace,
+        }
+    }
+
+    fn get_break_on_double(&self, signal: Signal) -> bool {
+        match signal {
+            Signal::Word(_) => self
+                .get_description(signal)
+                .map(|desc| desc.break_on_double)
+                .unwrap_or(false),
+            Signal::Number(_) => false,
         }
     }
 
@@ -133,7 +160,17 @@ impl Dictionary {
                         )));
                     }
 
-                    if let Some(signal) = self.get_signal(portion) {
+                    if portion.starts_with("|-")
+                        && (&portion[2..]).chars().all(|c| c.is_ascii_digit())
+                    {
+                        let signal = self
+                            .get_signal(portion)
+                            .ok_or(ParseSignalError::IntegerOverflow)?;
+                        signals.push(signal);
+                        starting_position += portion.len();
+                        portion = &word[starting_position..];
+                        break;
+                    } else if let Some(signal) = self.get_signal(portion) {
                         signals.push(signal);
                         starting_position += portion.len();
                         portion = &word[starting_position..];
@@ -170,23 +207,33 @@ impl Dictionary {
 
     pub fn format_signals(&self, signals: &[Signal]) -> String {
         if signals.is_empty() {
-            return self.get_name(signals[0]).unwrap();
+            return self.get_name(signals[0]);
         }
 
         let mut output = String::new();
+        let mut broke_on_double = false;
 
         for [signal_a, signal_b] in signals.array_windows() {
-            output.push_str(&self.get_name(*signal_a).unwrap());
+            if !broke_on_double {
+                output.push_str(&self.get_name(*signal_a));
 
-            let format_mode = self
-                .get_format_mode_after(*signal_a)
-                .unwrap()
-                .combine(self.get_format_mode_before(*signal_b).unwrap());
+                let format_mode_a = self.get_format_mode_after(*signal_a);
+                let format_mode_b = self.get_format_mode_before(*signal_b);
 
-            output.push_str(format_mode.as_str());
+                output.push_str(format_mode_a.combine(format_mode_b).as_str());
+            }
+
+            broke_on_double = false;
+
+            if signal_a == signal_b && self.get_break_on_double(*signal_a) {
+                output.push_str(&self.get_name(*signal_b));
+                output.push('\n');
+                broke_on_double = true;
+            }
         }
-        output.push_str(&self.get_name(*signals.last().unwrap()).unwrap());
-
+        if !broke_on_double {
+            output.push_str(&self.get_name(*signals.last().unwrap()));
+        }
         output
     }
 }
