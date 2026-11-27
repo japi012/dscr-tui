@@ -3,6 +3,10 @@ name = "dscr"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "dscr"
+path = "src/main.rs"
+
 [dependencies]
 bimap = "0.6.3"
 clap = { version = "4.6.10", features = ["derive"] }
